@@ -156,7 +156,7 @@ export class ZorinClient extends Client {
                         const leaveEmbed = createEmbed({
                             color: Colors.Info,
                             title: '👋  Left Voice Channel',
-                            description: 'No tracks were played for 15 minutes, so I left the voice channel to conserve resources.',
+                            description: 'No activity for 15 minutes, so I left the voice channel to conserve resources.',
                             footer: 'Zorin Music',
                         });
                         await ch.send({ embeds: [leaveEmbed] }).catch(() => {});
