@@ -10,6 +10,7 @@ import {
     createEmbed,
     Colors,
 } from '../utils/embeds';
+import { loadSessions, saveSession } from '../utils/sessionStore';
 import fs from 'fs';
 import path from 'path';
 
@@ -51,6 +52,15 @@ export class ZorinClient extends Client {
                 restTimeout: 15_000,
             },
         );
+
+        // Pre-populate Lavalink node sessionId from sessionStore disk cache so Shoukaku includes Session-Id header on handshake
+        const savedSessions = loadSessions();
+        for (const [nodeName, node] of this.shoukaku.nodes.entries()) {
+            const savedSessionId = savedSessions[nodeName];
+            if (savedSessionId) {
+                node.sessionId = savedSessionId;
+            }
+        }
     }
 
     // ── Lavalink helpers ──
@@ -249,9 +259,25 @@ export class ZorinClient extends Client {
         await Promise.all([this.loadCommands(), this.loadEvents()]);
 
         // Shoukaku lifecycle events
-        this.shoukaku.on('ready', (name) => {
-            console.log(`[Lavalink] ✅ Node "${name}" connected.`);
+        this.shoukaku.on('ready', async (name, resumed) => {
+            const node = this.shoukaku.nodes.get(name);
+            if (node?.sessionId) {
+                saveSession(name, node.sessionId);
+                console.log(`[Lavalink] ✅ Node "${name}" connected (Session-Id: ${node.sessionId}, Resumed: ${resumed}).`);
+            } else {
+                console.log(`[Lavalink] ✅ Node "${name}" connected.`);
+            }
+
+            if (resumed && node) {
+                try {
+                    const activePlayers = await node.rest.getPlayers();
+                    console.log(`[Lavalink] 🔄 Session resumed for node "${name}" — restored ${activePlayers.length} active Lavalink player(s).`);
+                } catch (err) {
+                    console.warn(`[Lavalink] ⚠️ Failed to fetch active resumed players for node "${name}":`, err);
+                }
+            }
         });
+
         this.shoukaku.on('error', (name, error) => {
             console.error(`[Lavalink] ❌ Node "${name}" error:`, (error as any)?.message ?? error);
         });

@@ -65,5 +65,6 @@ exports.config = {
     },
     lavalink: {
         nodes: parseLavalinkNodes(),
+        resumeTimeout: parseInt(process.env.LAVALINK_RESUME_TIMEOUT || '45', 10),
     },
 };

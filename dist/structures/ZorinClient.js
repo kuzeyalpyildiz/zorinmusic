@@ -9,6 +9,7 @@ const shoukaku_1 = require("shoukaku");
 const MusicQueue_1 = require("./MusicQueue");
 const config_1 = require("../config");
 const embeds_1 = require("../utils/embeds");
+const sessionStore_1 = require("../utils/sessionStore");
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 class ZorinClient extends discord_js_1.Client {
@@ -36,11 +37,19 @@ class ZorinClient extends discord_js_1.Client {
         this.shoukaku = new shoukaku_1.Shoukaku(new shoukaku_1.Connectors.DiscordJS(this), nodes, {
             moveOnDisconnect: false,
             resume: true,
-            resumeTimeout: 30,
+            resumeTimeout: config_1.config.lavalink.resumeTimeout,
             reconnectTries: 2,
             reconnectInterval: 10_000,
             restTimeout: 15_000,
         });
+        // Pre-populate Lavalink node sessionId from sessionStore disk cache so Shoukaku includes Session-Id header on handshake
+        const savedSessions = (0, sessionStore_1.loadSessions)();
+        for (const [nodeName, node] of this.shoukaku.nodes.entries()) {
+            const savedSessionId = savedSessions[nodeName];
+            if (savedSessionId) {
+                node.sessionId = savedSessionId;
+            }
+        }
     }
     // ── Lavalink helpers ──
     /** Get the active connected Lavalink node. */
@@ -214,8 +223,24 @@ class ZorinClient extends discord_js_1.Client {
         const startTime = Date.now();
         await Promise.all([this.loadCommands(), this.loadEvents()]);
         // Shoukaku lifecycle events
-        this.shoukaku.on('ready', (name) => {
-            console.log(`[Lavalink] ✅ Node "${name}" connected.`);
+        this.shoukaku.on('ready', async (name, resumed) => {
+            const node = this.shoukaku.nodes.get(name);
+            if (node?.sessionId) {
+                (0, sessionStore_1.saveSession)(name, node.sessionId);
+                console.log(`[Lavalink] ✅ Node "${name}" connected (Session-Id: ${node.sessionId}, Resumed: ${resumed}).`);
+            }
+            else {
+                console.log(`[Lavalink] ✅ Node "${name}" connected.`);
+            }
+            if (resumed && node) {
+                try {
+                    const activePlayers = await node.rest.getPlayers();
+                    console.log(`[Lavalink] 🔄 Session resumed for node "${name}" — restored ${activePlayers.length} active Lavalink player(s).`);
+                }
+                catch (err) {
+                    console.warn(`[Lavalink] ⚠️ Failed to fetch active resumed players for node "${name}":`, err);
+                }
+            }
         });
         this.shoukaku.on('error', (name, error) => {
             console.error(`[Lavalink] ❌ Node "${name}" error:`, error?.message ?? error);
