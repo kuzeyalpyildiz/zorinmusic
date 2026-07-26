@@ -29,11 +29,11 @@ A state-of-the-art, premium Discord Music Bot powered by **Lavalink v4** and bui
   - Dropdown repair menu with 3 options: **Reconnect Bot**, **Recreate Player**, or **Change Voice Region**.
 
 - 🧹 **Auto-Cleaning Messages**:
-  - All status response embeds and their triggering prefix messages (`!play`, `!pause`, etc.) auto-delete after 5 seconds (or 3 seconds for `!volume`).
+  - All status response embeds and their triggering prefix messages (`?play`, `?pause`, etc.) auto-delete after 5 seconds (or 3 seconds for `?volume`).
   - Help menu persists with an interactive `🗑️ Delete Menu` button.
 
 - ⌨️ **Dual Command System**:
-  - Full support for both Slash Commands (`/play`) and Prefix Commands (`!play`).
+  - Full support for both Slash Commands (`/play`) and Prefix Commands (`?play`).
 
 ---
 
@@ -73,7 +73,7 @@ Fill in your `.env` configuration:
 DISCORD_TOKEN=your_bot_token_here
 CLIENT_ID=your_client_id_here
 GUILD_ID=your_guild_id_here           # Optional — for fast single-guild slash testing
-DEFAULT_PREFIX=!
+DEFAULT_PREFIX=?
 
 # Spotify Credentials (Optional — for Spotify search/tracks)
 SPOTIFY_CLIENT_ID=your_spotify_client_id_here
@@ -109,28 +109,28 @@ npm start
 
 | Command | Aliases | Description |
 |---------|---------|-------------|
-| `/play <query>` | `!p` | Search & play across YouTube Music, Spotify, YouTube & SoundCloud |
-| `/search <query>` | `!sr` | Search multi-platform and select from top 5 results |
-| `/pause` | `!pa` | Pause current playback |
-| `/resume` | `!rs`, `!unpause` | Resume paused playback |
-| `/skip` | `!s`, `!sk`, `!next` | Skip current track |
-| `/previous` | `!prev`, `!back` | Play the previous track |
-| `/stop` | `!st`, `!dc` | Stop playback and disconnect |
-| `/leave` | `!l`, `!bye` | Leave the voice channel |
-| `/nowplaying` | `!np`, `!now` | Display live track info with progress bar |
-| `/queue [page]` | `!q` | Interactive queue menu with pagination & remove track dropdown |
-| `/remove <position>` | `!rm` | Remove a track from queue |
-| `/loop [mode]` | `!lp` | Toggle loop (Off / Track / Queue) |
-| `/shuffle` | `!sh`, `!mix` | Shuffle the queue |
-| `/volume <0-150>` | `!v`, `!vol` | Adjust volume level (auto-deletes in 3s) |
-| `/filter <preset>` | `!f`, `!fx`, `!eq` | Apply audio filter |
-| `/fix` | `!repair` | Open interactive repair menu |
+| `/play <query>` | `?p` | Search & play across YouTube Music, Spotify, YouTube & SoundCloud |
+| `/search <query>` | `?sr` | Search multi-platform and select from top 5 results |
+| `/pause` | `?pa` | Pause current playback |
+| `/resume` | `?rs`, `?unpause` | Resume paused playback |
+| `/skip` | `?s`, `?sk`, `?next` | Skip current track |
+| `/previous` | `?prev`, `?back` | Play the previous track |
+| `/stop` | `?st`, `?dc` | Stop playback and disconnect |
+| `/leave` | `?l`, `?bye` | Leave the voice channel |
+| `/nowplaying` | `?np`, `?now` | Display live track info with progress bar |
+| `/queue [page]` | `?q` | Interactive queue menu with pagination & remove track dropdown |
+| `/remove <position>` | `?rm` | Remove a track from queue |
+| `/loop [mode]` | `?lp` | Toggle loop (Off / Track / Queue) |
+| `/shuffle` | `?sh`, `?mix` | Shuffle the queue |
+| `/volume <0-150>` | `?v`, `?vol` | Adjust volume level (auto-deletes in 3s) |
+| `/filter <preset>` | `?f`, `?fx`, `?eq` | Apply audio filter |
+| `/fix` | `?repair` | Open interactive repair menu |
 
 ### Utility Commands
 
 | Command | Aliases | Description |
 |---------|---------|-------------|
-| `/help` | `!h`, `!commands` | Show interactive help menu with Delete button |
+| `/help` | `?h`, `?commands` | Show interactive help menu with Delete button |
 
 ---
 
