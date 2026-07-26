@@ -1,0 +1,25 @@
+{
+  "name": "zorin-music",
+  "version": "1.0.0",
+  "description": "Zorin Music — A premium Discord Music Bot powered by Lavalink",
+  "main": "dist/index.js",
+    "scripts": {
+    "build": "tsc",
+    "postinstall": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "deploy": "ts-node src/deploy-commands.ts"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.3",
+    "shoukaku": "^4.1.1",
+    "dotenv": "^16.4.7",
+    "typescript": "^5.7.2",
+    "@types/node": "^22.10.2"
+  },
+  "devDependencies": {
+    "ts-node": "^10.9.2"
+  },
+  "keywords": ["discord", "music", "bot", "lavalink", "zorin"],
+  "license": "MIT"
+}
