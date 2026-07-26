@@ -2,7 +2,7 @@ import { SlashCommandBuilder, ChatInputCommandInteraction, Message, GuildMember,
 import { ZorinClient } from '../../structures/ZorinClient';
 import { ZorinCommand, QueueTrack } from '../../types';
 import { createErrorEmbed, createEmbed, Colors, createTrackAddedEmbed } from '../../utils/embeds';
-import { smartResolve } from '../../utils/resolver';
+import { smartResolve, searchAllPlatforms, PLATFORM_LABELS } from '../../utils/resolver';
 
 const SOURCE_PREFIX_MAP: Record<string, string> = {
     ytm: 'ytmsearch',
@@ -73,34 +73,78 @@ const command: ZorinCommand = {
         }
 
         let result: any;
+        let tracks: any[] = [];
+        let searchSource = 'Auto Multi-Platform';
 
         if (source) {
             // Direct explicit source search
             result = await node.rest.resolve(`${source}:${query}`).catch(() => null);
+            searchSource = PLATFORM_LABELS[`${source}:`] ?? source.replace('search', '');
+
+            if (!result || !result.data) {
+                await interaction.editReply({ embeds: [createErrorEmbed('No results found for your search.')] });
+                return;
+            }
+
+            const rawData = Array.isArray(result.data) ? result.data : [result.data];
+            if (rawData.length === 0) {
+                await interaction.editReply({ embeds: [createErrorEmbed('No results found.')] });
+                return;
+            }
+            tracks = rawData.slice(0, 5);
         } else {
-            // Smart multi-platform auto-search fallback
-            result = await smartResolve(node, query);
+            // Parallel multi-platform search — get results from ALL platforms
+            const allResults = await searchAllPlatforms(node, query);
+            const platformKeys = Object.keys(allResults);
+
+            if (platformKeys.length === 0) {
+                await interaction.editReply({ embeds: [createErrorEmbed('No results found across any platform.')] });
+                return;
+            }
+
+            // Aggregate top result from each platform, up to 5 total
+            for (const prefix of platformKeys) {
+                const res = allResults[prefix];
+                const data = Array.isArray(res.data) ? res.data : [res.data];
+                for (const t of data.slice(0, Math.max(1, Math.floor(5 / platformKeys.length)))) {
+                    if (tracks.length >= 5) break;
+                    tracks.push({ ...t, _sourcePlatform: prefix });
+                }
+                if (tracks.length >= 5) break;
+            }
+
+            // If we still have room, fill from the first platform with most results
+            if (tracks.length < 5) {
+                for (const prefix of platformKeys) {
+                    const res = allResults[prefix];
+                    const data = Array.isArray(res.data) ? res.data : [res.data];
+                    for (const t of data) {
+                        const isDuplicate = tracks.some(existing => existing.info.title === t.info.title && existing.info.author === t.info.author);
+                        if (!isDuplicate && tracks.length < 5) {
+                            tracks.push({ ...t, _sourcePlatform: prefix });
+                        }
+                    }
+                }
+            }
+
+            searchSource = `${platformKeys.length} platform${platformKeys.length > 1 ? 's' : ''} searched`;
         }
 
-        if (!result || !result.data) {
-            await interaction.editReply({ embeds: [createErrorEmbed('No results found for your search.')] });
-            return;
-        }
-
-        const rawData = Array.isArray(result.data) ? result.data : [result.data];
-        if (rawData.length === 0) {
+        if (tracks.length === 0) {
             await interaction.editReply({ embeds: [createErrorEmbed('No results found.')] });
             return;
         }
 
-        const tracks = rawData.slice(0, 5);
-        const description = tracks.map((t: any, i: number) => `**${i + 1}.** ${t.info.title} — ${t.info.author}`).join('\n');
+        const description = tracks.map((t: any, i: number) => {
+            const platformTag = t._sourcePlatform ? ` [${PLATFORM_LABELS[t._sourcePlatform] ?? t._sourcePlatform}]` : '';
+            return `**${i + 1}.** ${t.info.title} — ${t.info.author}${platformTag}`;
+        }).join('\n');
 
         const embed = createEmbed({
             color: Colors.Info,
             title: `🔍  Search Results for "${query}"`,
             description,
-            footer: `Zorin Music  •  Source: ${source ? source.replace('search', '') : 'Auto Multi-Platform'}`,
+            footer: `Zorin Music  •  ${searchSource}`,
         });
 
         const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
@@ -109,7 +153,7 @@ const command: ZorinCommand = {
                 .setPlaceholder('Select a track to play')
                 .addOptions(tracks.map((t: any, i: number) => ({ 
                     label: t.info.title.substring(0, 100), 
-                    description: t.info.author.substring(0, 100),
+                    description: `${t.info.author.substring(0, 50)} • ${PLATFORM_LABELS[t._sourcePlatform] ?? t.info.sourceName ?? 'Unknown'}`.substring(0, 100),
                     value: i.toString() 
                 })))
         );
@@ -211,24 +255,74 @@ const command: ZorinCommand = {
             return;
         }
         let result: any;
+        let tracks: any[] = [];
+        let prefixSearchSource = 'Auto Multi-Platform';
 
         if (sourcePrefix) {
             result = await node.rest.resolve(`${sourcePrefix}:${rawQuery}`).catch(() => null);
+            prefixSearchSource = PLATFORM_LABELS[`${sourcePrefix}:`] ?? sourcePrefix.replace('search', '');
+
+            if (!result || !result.data) {
+                const err = await message.reply({ embeds: [createErrorEmbed('No results found for your search.')] });
+                setTimeout(() => {
+                    err.delete().catch(() => {});
+                    message.delete().catch(() => {});
+                }, 5000);
+                return;
+            }
+
+            const rawData = Array.isArray(result.data) ? result.data : [result.data];
+            if (rawData.length === 0) {
+                const err = await message.reply({ embeds: [createErrorEmbed('No results found.')] });
+                setTimeout(() => {
+                    err.delete().catch(() => {});
+                    message.delete().catch(() => {});
+                }, 5000);
+                return;
+            }
+            tracks = rawData.slice(0, 5);
         } else {
-            result = await smartResolve(node, rawQuery);
+            // Parallel multi-platform search
+            const allResults = await searchAllPlatforms(node, rawQuery);
+            const platformKeys = Object.keys(allResults);
+
+            if (platformKeys.length === 0) {
+                const err = await message.reply({ embeds: [createErrorEmbed('No results found across any platform.')] });
+                setTimeout(() => {
+                    err.delete().catch(() => {});
+                    message.delete().catch(() => {});
+                }, 5000);
+                return;
+            }
+
+            // Aggregate top result from each platform, up to 5 total
+            for (const prefix of platformKeys) {
+                const res = allResults[prefix];
+                const data = Array.isArray(res.data) ? res.data : [res.data];
+                for (const t of data.slice(0, Math.max(1, Math.floor(5 / platformKeys.length)))) {
+                    if (tracks.length >= 5) break;
+                    tracks.push({ ...t, _sourcePlatform: prefix });
+                }
+                if (tracks.length >= 5) break;
+            }
+
+            if (tracks.length < 5) {
+                for (const prefix of platformKeys) {
+                    const res = allResults[prefix];
+                    const data = Array.isArray(res.data) ? res.data : [res.data];
+                    for (const t of data) {
+                        const isDuplicate = tracks.some(existing => existing.info.title === t.info.title && existing.info.author === t.info.author);
+                        if (!isDuplicate && tracks.length < 5) {
+                            tracks.push({ ...t, _sourcePlatform: prefix });
+                        }
+                    }
+                }
+            }
+
+            prefixSearchSource = `${platformKeys.length} platform${platformKeys.length > 1 ? 's' : ''} searched`;
         }
 
-        if (!result || !result.data) {
-            const err = await message.reply({ embeds: [createErrorEmbed('No results found for your search.')] });
-            setTimeout(() => {
-                err.delete().catch(() => {});
-                message.delete().catch(() => {});
-            }, 5000);
-            return;
-        }
-
-        const rawData = Array.isArray(result.data) ? result.data : [result.data];
-        if (rawData.length === 0) {
+        if (tracks.length === 0) {
             const err = await message.reply({ embeds: [createErrorEmbed('No results found.')] });
             setTimeout(() => {
                 err.delete().catch(() => {});
@@ -237,14 +331,16 @@ const command: ZorinCommand = {
             return;
         }
 
-        const tracks = rawData.slice(0, 5);
-        const description = tracks.map((t: any, i: number) => `**${i + 1}.** ${t.info.title} — ${t.info.author}`).join('\n');
+        const description = tracks.map((t: any, i: number) => {
+            const platformTag = t._sourcePlatform ? ` [${PLATFORM_LABELS[t._sourcePlatform] ?? t._sourcePlatform}]` : '';
+            return `**${i + 1}.** ${t.info.title} — ${t.info.author}${platformTag}`;
+        }).join('\n');
 
         const embed = createEmbed({
             color: Colors.Info,
             title: `🔍  Search Results for "${rawQuery}"`,
             description,
-            footer: `Zorin Music  •  Source: ${sourcePrefix ? sourcePrefix.replace('search', '') : 'Auto Multi-Platform'}`,
+            footer: `Zorin Music  •  ${prefixSearchSource}`,
         });
 
         const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
@@ -253,7 +349,7 @@ const command: ZorinCommand = {
                 .setPlaceholder('Select a track to play')
                 .addOptions(tracks.map((t: any, i: number) => ({ 
                     label: t.info.title.substring(0, 100), 
-                    description: t.info.author.substring(0, 100),
+                    description: `${t.info.author.substring(0, 50)} • ${PLATFORM_LABELS[t._sourcePlatform] ?? t.info.sourceName ?? 'Unknown'}`.substring(0, 100),
                     value: i.toString() 
                 })))
         );

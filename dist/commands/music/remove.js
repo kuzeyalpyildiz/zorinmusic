@@ -95,4 +95,3 @@ const command = {
     },
 };
 exports.default = command;
-//# sourceMappingURL=remove.js.map

@@ -1,5 +1,5 @@
 import { Client, Collection, GatewayIntentBits } from 'discord.js';
-import { Shoukaku, Connectors, Player } from 'shoukaku';
+import { Shoukaku, Connectors, Player, Node } from 'shoukaku';
 import { ZorinCommand, QueueTrack } from '../types';
 import { MusicQueue } from './MusicQueue';
 import { config } from '../config';
@@ -19,6 +19,9 @@ export class ZorinClient extends Client {
     public shoukaku: Shoukaku;
     public queues: Map<string, MusicQueue> = new Map();
 
+    private _cachedNode: Node | null = null;
+    private _nodeCacheExpiry: number = 0;
+
     constructor() {
         super({
             intents: [
@@ -29,23 +32,23 @@ export class ZorinClient extends Client {
             ],
         });
 
-        const primaryNode = {
-            name: config.lavalink.name,
-            url: `${config.lavalink.host}:${config.lavalink.port}`,
-            auth: config.lavalink.password,
-            secure: config.lavalink.secure,
-        };
+        const nodes = config.lavalink.nodes.map(n => ({
+            name: n.name,
+            url: `${n.host}:${n.port}`,
+            auth: n.password,
+            secure: n.secure,
+        }));
 
         this.shoukaku = new Shoukaku(
             new Connectors.DiscordJS(this),
-            [primaryNode],
+            nodes,
             {
                 moveOnDisconnect: false,
                 resume: true,
                 resumeTimeout: 30,
                 reconnectTries: 2,
-                reconnectInterval: 15_000,
-                restTimeout: 30_000,
+                reconnectInterval: 10_000,
+                restTimeout: 15_000,
             },
         );
     }
@@ -54,8 +57,16 @@ export class ZorinClient extends Client {
 
     /** Get the active connected Lavalink node. */
     public getNode() {
+        if (this._cachedNode && Date.now() < this._nodeCacheExpiry) {
+            return this._cachedNode;
+        }
+
         const connectedNode = [...this.shoukaku.nodes.values()].find(n => n.state === 1);
         if (!connectedNode) throw new Error('No connected Lavalink nodes available. Please check node connectivity in .env.');
+        
+        this._cachedNode = connectedNode;
+        this._nodeCacheExpiry = Date.now() + 5000;
+        
         return connectedNode;
     }
 
@@ -234,8 +245,8 @@ export class ZorinClient extends Client {
 
     /** Bootstrap the bot: load commands & events, connect Shoukaku, login. */
     public async start(): Promise<void> {
-        await this.loadCommands();
-        await this.loadEvents();
+        const startTime = Date.now();
+        await Promise.all([this.loadCommands(), this.loadEvents()]);
 
         // Shoukaku lifecycle events
         this.shoukaku.on('ready', (name) => {
@@ -274,5 +285,6 @@ export class ZorinClient extends Client {
         });
 
         await this.login(config.token);
+        console.log(`[Zorin Music] 🚀 Startup completed in ${Date.now() - startTime}ms.`);
     }
 }

@@ -132,4 +132,3 @@ class MusicQueue {
     }
 }
 exports.MusicQueue = MusicQueue;
-//# sourceMappingURL=MusicQueue.js.map

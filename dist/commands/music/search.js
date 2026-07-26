@@ -58,37 +58,78 @@ const command = {
             return;
         }
         let result;
+        let tracks = [];
+        let searchSource = 'Auto Multi-Platform';
         if (source) {
             // Direct explicit source search
             result = await node.rest.resolve(`${source}:${query}`).catch(() => null);
+            searchSource = resolver_1.PLATFORM_LABELS[`${source}:`] ?? source.replace('search', '');
+            if (!result || !result.data) {
+                await interaction.editReply({ embeds: [(0, embeds_1.createErrorEmbed)('No results found for your search.')] });
+                return;
+            }
+            const rawData = Array.isArray(result.data) ? result.data : [result.data];
+            if (rawData.length === 0) {
+                await interaction.editReply({ embeds: [(0, embeds_1.createErrorEmbed)('No results found.')] });
+                return;
+            }
+            tracks = rawData.slice(0, 5);
         }
         else {
-            // Smart multi-platform auto-search fallback
-            result = await (0, resolver_1.smartResolve)(node, query);
+            // Parallel multi-platform search — get results from ALL platforms
+            const allResults = await (0, resolver_1.searchAllPlatforms)(node, query);
+            const platformKeys = Object.keys(allResults);
+            if (platformKeys.length === 0) {
+                await interaction.editReply({ embeds: [(0, embeds_1.createErrorEmbed)('No results found across any platform.')] });
+                return;
+            }
+            // Aggregate top result from each platform, up to 5 total
+            for (const prefix of platformKeys) {
+                const res = allResults[prefix];
+                const data = Array.isArray(res.data) ? res.data : [res.data];
+                for (const t of data.slice(0, Math.max(1, Math.floor(5 / platformKeys.length)))) {
+                    if (tracks.length >= 5)
+                        break;
+                    tracks.push({ ...t, _sourcePlatform: prefix });
+                }
+                if (tracks.length >= 5)
+                    break;
+            }
+            // If we still have room, fill from the first platform with most results
+            if (tracks.length < 5) {
+                for (const prefix of platformKeys) {
+                    const res = allResults[prefix];
+                    const data = Array.isArray(res.data) ? res.data : [res.data];
+                    for (const t of data) {
+                        const isDuplicate = tracks.some(existing => existing.info.title === t.info.title && existing.info.author === t.info.author);
+                        if (!isDuplicate && tracks.length < 5) {
+                            tracks.push({ ...t, _sourcePlatform: prefix });
+                        }
+                    }
+                }
+            }
+            searchSource = `${platformKeys.length} platform${platformKeys.length > 1 ? 's' : ''} searched`;
         }
-        if (!result || !result.data) {
-            await interaction.editReply({ embeds: [(0, embeds_1.createErrorEmbed)('No results found for your search.')] });
-            return;
-        }
-        const rawData = Array.isArray(result.data) ? result.data : [result.data];
-        if (rawData.length === 0) {
+        if (tracks.length === 0) {
             await interaction.editReply({ embeds: [(0, embeds_1.createErrorEmbed)('No results found.')] });
             return;
         }
-        const tracks = rawData.slice(0, 5);
-        const description = tracks.map((t, i) => `**${i + 1}.** ${t.info.title} — ${t.info.author}`).join('\n');
+        const description = tracks.map((t, i) => {
+            const platformTag = t._sourcePlatform ? ` [${resolver_1.PLATFORM_LABELS[t._sourcePlatform] ?? t._sourcePlatform}]` : '';
+            return `**${i + 1}.** ${t.info.title} — ${t.info.author}${platformTag}`;
+        }).join('\n');
         const embed = (0, embeds_1.createEmbed)({
             color: embeds_1.Colors.Info,
             title: `🔍  Search Results for "${query}"`,
             description,
-            footer: `Zorin Music  •  Source: ${source ? source.replace('search', '') : 'Auto Multi-Platform'}`,
+            footer: `Zorin Music  •  ${searchSource}`,
         });
         const row = new discord_js_1.ActionRowBuilder().addComponents(new discord_js_1.StringSelectMenuBuilder()
             .setCustomId('search-select')
             .setPlaceholder('Select a track to play')
             .addOptions(tracks.map((t, i) => ({
             label: t.info.title.substring(0, 100),
-            description: t.info.author.substring(0, 100),
+            description: `${t.info.author.substring(0, 50)} • ${resolver_1.PLATFORM_LABELS[t._sourcePlatform] ?? t.info.sourceName ?? 'Unknown'}`.substring(0, 100),
             value: i.toString()
         }))));
         await interaction.editReply({ embeds: [embed], components: [row] });
@@ -176,22 +217,69 @@ const command = {
             return;
         }
         let result;
+        let tracks = [];
+        let prefixSearchSource = 'Auto Multi-Platform';
         if (sourcePrefix) {
             result = await node.rest.resolve(`${sourcePrefix}:${rawQuery}`).catch(() => null);
+            prefixSearchSource = resolver_1.PLATFORM_LABELS[`${sourcePrefix}:`] ?? sourcePrefix.replace('search', '');
+            if (!result || !result.data) {
+                const err = await message.reply({ embeds: [(0, embeds_1.createErrorEmbed)('No results found for your search.')] });
+                setTimeout(() => {
+                    err.delete().catch(() => { });
+                    message.delete().catch(() => { });
+                }, 5000);
+                return;
+            }
+            const rawData = Array.isArray(result.data) ? result.data : [result.data];
+            if (rawData.length === 0) {
+                const err = await message.reply({ embeds: [(0, embeds_1.createErrorEmbed)('No results found.')] });
+                setTimeout(() => {
+                    err.delete().catch(() => { });
+                    message.delete().catch(() => { });
+                }, 5000);
+                return;
+            }
+            tracks = rawData.slice(0, 5);
         }
         else {
-            result = await (0, resolver_1.smartResolve)(node, rawQuery);
+            // Parallel multi-platform search
+            const allResults = await (0, resolver_1.searchAllPlatforms)(node, rawQuery);
+            const platformKeys = Object.keys(allResults);
+            if (platformKeys.length === 0) {
+                const err = await message.reply({ embeds: [(0, embeds_1.createErrorEmbed)('No results found across any platform.')] });
+                setTimeout(() => {
+                    err.delete().catch(() => { });
+                    message.delete().catch(() => { });
+                }, 5000);
+                return;
+            }
+            // Aggregate top result from each platform, up to 5 total
+            for (const prefix of platformKeys) {
+                const res = allResults[prefix];
+                const data = Array.isArray(res.data) ? res.data : [res.data];
+                for (const t of data.slice(0, Math.max(1, Math.floor(5 / platformKeys.length)))) {
+                    if (tracks.length >= 5)
+                        break;
+                    tracks.push({ ...t, _sourcePlatform: prefix });
+                }
+                if (tracks.length >= 5)
+                    break;
+            }
+            if (tracks.length < 5) {
+                for (const prefix of platformKeys) {
+                    const res = allResults[prefix];
+                    const data = Array.isArray(res.data) ? res.data : [res.data];
+                    for (const t of data) {
+                        const isDuplicate = tracks.some(existing => existing.info.title === t.info.title && existing.info.author === t.info.author);
+                        if (!isDuplicate && tracks.length < 5) {
+                            tracks.push({ ...t, _sourcePlatform: prefix });
+                        }
+                    }
+                }
+            }
+            prefixSearchSource = `${platformKeys.length} platform${platformKeys.length > 1 ? 's' : ''} searched`;
         }
-        if (!result || !result.data) {
-            const err = await message.reply({ embeds: [(0, embeds_1.createErrorEmbed)('No results found for your search.')] });
-            setTimeout(() => {
-                err.delete().catch(() => { });
-                message.delete().catch(() => { });
-            }, 5000);
-            return;
-        }
-        const rawData = Array.isArray(result.data) ? result.data : [result.data];
-        if (rawData.length === 0) {
+        if (tracks.length === 0) {
             const err = await message.reply({ embeds: [(0, embeds_1.createErrorEmbed)('No results found.')] });
             setTimeout(() => {
                 err.delete().catch(() => { });
@@ -199,20 +287,22 @@ const command = {
             }, 5000);
             return;
         }
-        const tracks = rawData.slice(0, 5);
-        const description = tracks.map((t, i) => `**${i + 1}.** ${t.info.title} — ${t.info.author}`).join('\n');
+        const description = tracks.map((t, i) => {
+            const platformTag = t._sourcePlatform ? ` [${resolver_1.PLATFORM_LABELS[t._sourcePlatform] ?? t._sourcePlatform}]` : '';
+            return `**${i + 1}.** ${t.info.title} — ${t.info.author}${platformTag}`;
+        }).join('\n');
         const embed = (0, embeds_1.createEmbed)({
             color: embeds_1.Colors.Info,
             title: `🔍  Search Results for "${rawQuery}"`,
             description,
-            footer: `Zorin Music  •  Source: ${sourcePrefix ? sourcePrefix.replace('search', '') : 'Auto Multi-Platform'}`,
+            footer: `Zorin Music  •  ${prefixSearchSource}`,
         });
         const row = new discord_js_1.ActionRowBuilder().addComponents(new discord_js_1.StringSelectMenuBuilder()
             .setCustomId('search-select-prefix')
             .setPlaceholder('Select a track to play')
             .addOptions(tracks.map((t, i) => ({
             label: t.info.title.substring(0, 100),
-            description: t.info.author.substring(0, 100),
+            description: `${t.info.author.substring(0, 50)} • ${resolver_1.PLATFORM_LABELS[t._sourcePlatform] ?? t.info.sourceName ?? 'Unknown'}`.substring(0, 100),
             value: i.toString()
         }))));
         const replyMessage = await message.reply({ embeds: [embed], components: [row] });
@@ -261,4 +351,3 @@ const command = {
     }
 };
 exports.default = command;
-//# sourceMappingURL=search.js.map

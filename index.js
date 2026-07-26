@@ -1,6 +1,8 @@
 // Zorin Music — Automated Headless Bootstrapper
 // Pre-checks, auto-build, and startup runner
 
+const { performance } = require('perf_hooks');
+const startTime = performance.now();
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
@@ -18,7 +20,22 @@ if (majorVersion < 20) {
 }
 console.log(`[Pre-Check] ✅ Node.js v${nodeVersion} detected.`);
 
-// 2. Check Environment Config (.env)
+// 2. Check Node Modules
+const nodeModulesPath = path.join(__dirname, 'node_modules');
+if (!fs.existsSync(nodeModulesPath)) {
+    console.log('[Pre-Check] 📦 node_modules missing — installing dependencies …');
+    try {
+        execSync('npm install', { stdio: 'inherit', cwd: __dirname });
+        console.log('[Pre-Check] ✅ Dependencies installed!');
+    } catch (err) {
+        console.error('❌  Failed to install dependencies:', err.message);
+        process.exit(1);
+    }
+} else {
+    console.log('[Pre-Check] ✅ node_modules present.');
+}
+
+// 3. Check Environment Config (.env)
 const envPath = path.join(__dirname, '.env');
 const envExamplePath = path.join(__dirname, '.env.example');
 
@@ -40,13 +57,19 @@ if (!process.env.DISCORD_TOKEN) {
     console.warn('[Pre-Check] ⚠️  DISCORD_TOKEN is missing in environment variables or .env file!');
 }
 
-// 3. Check Dependencies & Build Artifacts
+// 4. Check Dependencies & Build Artifacts
 const distPath = path.join(__dirname, 'dist');
 const indexJsPath = path.join(distPath, 'index.js');
+const tsBuildInfoPath = path.join(distPath, '.tsbuildinfo');
 
 if (!fs.existsSync(distPath) || !fs.existsSync(indexJsPath)) {
     console.log('[Pre-Check] 🛠️  Build artifacts missing — compiling TypeScript …');
     try {
+        if (fs.existsSync(tsBuildInfoPath)) {
+             console.log('[Pre-Check] 🔄 Found .tsbuildinfo, performing incremental build …');
+        } else {
+             console.log('[Pre-Check] 🚀 No .tsbuildinfo found, performing full build …');
+        }
         execSync('npx tsc', { stdio: 'inherit', cwd: __dirname });
         console.log('[Pre-Check] ✅ Build complete!');
     } catch (err) {
@@ -57,7 +80,10 @@ if (!fs.existsSync(distPath) || !fs.existsSync(indexJsPath)) {
     console.log('[Pre-Check] ✅ Compiled build (dist/) verified.');
 }
 
+const endTime = performance.now();
+const timeTakenMs = (endTime - startTime).toFixed(2);
+console.log(`[Pre-Check] ⏱️  Pre-checks completed in ${timeTakenMs}ms.`);
 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
-// 4. Launch Bot
+// 5. Launch Bot
 require('./dist/index.js');

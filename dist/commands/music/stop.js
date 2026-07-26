@@ -63,4 +63,3 @@ const command = {
     }
 };
 exports.default = command;
-//# sourceMappingURL=stop.js.map

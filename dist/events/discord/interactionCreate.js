@@ -30,4 +30,3 @@ exports.default = {
         }
     },
 };
-//# sourceMappingURL=interactionCreate.js.map

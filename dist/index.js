@@ -9,4 +9,3 @@ client.start().catch((err) => {
     console.error('[Zorin Music] ❌ Fatal startup error:', err);
     process.exit(1);
 });
-//# sourceMappingURL=index.js.map

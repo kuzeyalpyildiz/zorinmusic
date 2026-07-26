@@ -38,4 +38,3 @@ exports.default = {
         }
     },
 };
-//# sourceMappingURL=messageCreate.js.map

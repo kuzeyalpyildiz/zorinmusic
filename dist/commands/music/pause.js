@@ -80,4 +80,3 @@ const command = {
     }
 };
 exports.default = command;
-//# sourceMappingURL=pause.js.map

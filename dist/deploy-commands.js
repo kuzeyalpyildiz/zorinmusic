@@ -39,4 +39,3 @@ deploy().catch((err) => {
     console.error('[Deploy] ❌ Error:', err);
     process.exit(1);
 });
-//# sourceMappingURL=deploy-commands.js.map

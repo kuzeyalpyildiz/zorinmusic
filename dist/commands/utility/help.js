@@ -82,4 +82,3 @@ const command = {
     },
 };
 exports.default = command;
-//# sourceMappingURL=help.js.map

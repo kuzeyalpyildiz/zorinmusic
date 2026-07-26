@@ -80,4 +80,3 @@ const command = {
     }
 };
 exports.default = command;
-//# sourceMappingURL=previous.js.map

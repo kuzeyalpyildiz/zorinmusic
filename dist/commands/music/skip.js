@@ -65,4 +65,3 @@ const command = {
     }
 };
 exports.default = command;
-//# sourceMappingURL=skip.js.map

@@ -3,7 +3,7 @@ import { ZorinClient } from '../../structures/ZorinClient';
 import { config } from '../../config';
 
 export default {
-    name: 'ready',
+    name: 'clientReady',
     once: true,
     async execute(client: ZorinClient) {
         console.log(`[Zorin Music] 🎵 Logged in as ${client.user?.tag}`);

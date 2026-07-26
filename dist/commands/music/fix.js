@@ -212,4 +212,3 @@ const command = {
     },
 };
 exports.default = command;
-//# sourceMappingURL=fix.js.map

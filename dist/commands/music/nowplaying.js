@@ -35,4 +35,3 @@ const command = {
     }
 };
 exports.default = command;
-//# sourceMappingURL=nowplaying.js.map

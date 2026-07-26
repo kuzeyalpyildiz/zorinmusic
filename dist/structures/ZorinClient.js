@@ -16,6 +16,8 @@ class ZorinClient extends discord_js_1.Client {
     aliases = new discord_js_1.Collection();
     shoukaku;
     queues = new Map();
+    _cachedNode = null;
+    _nodeCacheExpiry = 0;
     constructor() {
         super({
             intents: [
@@ -25,27 +27,32 @@ class ZorinClient extends discord_js_1.Client {
                 discord_js_1.GatewayIntentBits.MessageContent,
             ],
         });
-        const primaryNode = {
-            name: config_1.config.lavalink.name,
-            url: `${config_1.config.lavalink.host}:${config_1.config.lavalink.port}`,
-            auth: config_1.config.lavalink.password,
-            secure: config_1.config.lavalink.secure,
-        };
-        this.shoukaku = new shoukaku_1.Shoukaku(new shoukaku_1.Connectors.DiscordJS(this), [primaryNode], {
+        const nodes = config_1.config.lavalink.nodes.map(n => ({
+            name: n.name,
+            url: `${n.host}:${n.port}`,
+            auth: n.password,
+            secure: n.secure,
+        }));
+        this.shoukaku = new shoukaku_1.Shoukaku(new shoukaku_1.Connectors.DiscordJS(this), nodes, {
             moveOnDisconnect: false,
             resume: true,
             resumeTimeout: 30,
             reconnectTries: 2,
-            reconnectInterval: 15_000,
-            restTimeout: 30_000,
+            reconnectInterval: 10_000,
+            restTimeout: 15_000,
         });
     }
     // ── Lavalink helpers ──
     /** Get the active connected Lavalink node. */
     getNode() {
+        if (this._cachedNode && Date.now() < this._nodeCacheExpiry) {
+            return this._cachedNode;
+        }
         const connectedNode = [...this.shoukaku.nodes.values()].find(n => n.state === 1);
         if (!connectedNode)
             throw new Error('No connected Lavalink nodes available. Please check node connectivity in .env.');
+        this._cachedNode = connectedNode;
+        this._nodeCacheExpiry = Date.now() + 5000;
         return connectedNode;
     }
     /**
@@ -204,8 +211,8 @@ class ZorinClient extends discord_js_1.Client {
     }
     /** Bootstrap the bot: load commands & events, connect Shoukaku, login. */
     async start() {
-        await this.loadCommands();
-        await this.loadEvents();
+        const startTime = Date.now();
+        await Promise.all([this.loadCommands(), this.loadEvents()]);
         // Shoukaku lifecycle events
         this.shoukaku.on('ready', (name) => {
             console.log(`[Lavalink] ✅ Node "${name}" connected.`);
@@ -243,7 +250,7 @@ class ZorinClient extends discord_js_1.Client {
             console.error('[Uncaught Exception]', error);
         });
         await this.login(config_1.config.token);
+        console.log(`[Zorin Music] 🚀 Startup completed in ${Date.now() - startTime}ms.`);
     }
 }
 exports.ZorinClient = ZorinClient;
-//# sourceMappingURL=ZorinClient.js.map

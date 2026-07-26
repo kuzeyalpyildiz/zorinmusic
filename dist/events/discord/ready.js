@@ -3,7 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const discord_js_1 = require("discord.js");
 const config_1 = require("../../config");
 exports.default = {
-    name: 'ready',
+    name: 'clientReady',
     once: true,
     async execute(client) {
         console.log(`[Zorin Music] 🎵 Logged in as ${client.user?.tag}`);
@@ -40,4 +40,3 @@ exports.default = {
         setInterval(setActivity, 30_000);
     },
 };
-//# sourceMappingURL=ready.js.map

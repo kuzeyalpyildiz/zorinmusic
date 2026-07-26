@@ -86,4 +86,3 @@ class AutoUpdater {
     }
 }
 exports.AutoUpdater = AutoUpdater;
-//# sourceMappingURL=AutoUpdater.js.map

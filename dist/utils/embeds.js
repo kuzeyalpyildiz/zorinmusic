@@ -190,4 +190,3 @@ function createQueueEmbed(queue, page = 1) {
         footer: `Page ${clampedPage} / ${totalPages}  •  Zorin Music`,
     });
 }
-//# sourceMappingURL=embeds.js.map
