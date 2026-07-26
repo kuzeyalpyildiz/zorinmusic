@@ -45,7 +45,7 @@ export class ZorinClient extends Client {
             {
                 moveOnDisconnect: false,
                 resume: true,
-                resumeTimeout: 30,
+                resumeTimeout: config.lavalink.resumeTimeout,
                 reconnectTries: 2,
                 reconnectInterval: 10_000,
                 restTimeout: 15_000,
