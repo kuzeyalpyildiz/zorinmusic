@@ -1,6 +1,6 @@
 # 🎵 Zorin Music
 
-A state-of-the-art, premium Discord Music Bot powered by **Lavalink v4** and built with **discord.js v14** and **TypeScript**.
+A state-of-the-art, premium Discord Music Bot.
 
 ---
 
