@@ -11,6 +11,7 @@ import {
     Colors,
 } from '../utils/embeds';
 import { loadSessions, saveSession } from '../utils/sessionStore';
+import { loadAllPlayerStates, savePlayerState, removePlayerState } from '../utils/playerStore';
 import fs from 'fs';
 import path from 'path';
 
@@ -22,6 +23,8 @@ export class ZorinClient extends Client {
 
     private _cachedNode: Node | null = null;
     private _nodeCacheExpiry: number = 0;
+    private _nodeErrors: Map<string, number> = new Map();
+    private _nodeCooldowns: Map<string, number> = new Map();
 
     constructor() {
         super({
@@ -47,8 +50,8 @@ export class ZorinClient extends Client {
                 moveOnDisconnect: false,
                 resume: true,
                 resumeTimeout: config.lavalink.resumeTimeout,
-                reconnectTries: 2,
-                reconnectInterval: 10_000,
+                reconnectTries: 1,
+                reconnectInterval: 15_000,
                 restTimeout: 15_000,
             },
         );
@@ -65,14 +68,24 @@ export class ZorinClient extends Client {
 
     // ── Lavalink helpers ──
 
-    /** Get the active connected Lavalink node. */
+    /** Get the active connected Lavalink node (skipping nodes on 1-hour error cooldown). */
     public getNode() {
         if (this._cachedNode && Date.now() < this._nodeCacheExpiry) {
-            return this._cachedNode;
+            const cooldown = this._nodeCooldowns.get(this._cachedNode.name) || 0;
+            if (Date.now() >= cooldown && this._cachedNode.state === 1) {
+                return this._cachedNode;
+            }
         }
 
-        const connectedNode = [...this.shoukaku.nodes.values()].find(n => n.state === 1);
-        if (!connectedNode) throw new Error('No connected Lavalink nodes available. Please check node connectivity in .env.');
+        const now = Date.now();
+        const connectedNode = [...this.shoukaku.nodes.values()].find(n => {
+            if (n.state !== 1) return false;
+            const cooldown = this._nodeCooldowns.get(n.name) || 0;
+            if (now < cooldown) return false; // Skip node on 1-hour error cooldown
+            return true;
+        });
+
+        if (!connectedNode) throw new Error('No healthy connected Lavalink nodes available. Please check node connectivity in .env.');
         
         this._cachedNode = connectedNode;
         this._nodeCacheExpiry = Date.now() + 5000;
@@ -111,6 +124,19 @@ export class ZorinClient extends Client {
         player.on('start', async () => {
             if (!queue.current) return;
 
+            // Save active player state to disk for auto-reconnection on bot restart
+            savePlayerState(guildId, {
+                guildId,
+                channelId,
+                textChannelId,
+                shardId,
+                currentTrack: queue.current,
+                queueTracks: queue.tracks,
+                position: player.position,
+                loop: queue.loop,
+                paused: queue.paused,
+            });
+
             // Cancel any pending idle leave timer
             queue.stopLeaveTimeout();
 
@@ -130,6 +156,19 @@ export class ZorinClient extends Client {
                         try {
                             const updatedEmbed = createNowPlayingEmbed(queue.current, player.position);
                             await queue.lastNowPlayingMessage.edit({ embeds: [updatedEmbed] });
+                            
+                            // Periodically update saved position
+                            savePlayerState(guildId, {
+                                guildId,
+                                channelId,
+                                textChannelId,
+                                shardId,
+                                currentTrack: queue.current,
+                                queueTracks: queue.tracks,
+                                position: player.position,
+                                loop: queue.loop,
+                                paused: queue.paused,
+                            });
                         } catch {
                             queue.stopNowPlayingUpdater();
                         }
@@ -146,6 +185,7 @@ export class ZorinClient extends Client {
             if (next) {
                 player.playTrack({ track: { encoded: next.encoded } });
             } else {
+                removePlayerState(guildId);
                 await queue.deleteLastNowPlayingMessage();
                 const channel = this.channels.cache.get(queue.textChannelId);
                 if (channel && channel.isSendable()) {
@@ -174,6 +214,7 @@ export class ZorinClient extends Client {
         player.on('closed', () => {
             queue.stopLeaveTimeout();
             queue.deleteLastNowPlayingMessage().catch(() => {});
+            removePlayerState(guildId);
             this.queues.delete(guildId);
         });
 
@@ -198,11 +239,69 @@ export class ZorinClient extends Client {
             queue.stopLeaveTimeout();
             queue.deleteLastNowPlayingMessage().catch(() => {});
         }
+        removePlayerState(guildId);
         this.queues.delete(guildId);
         try {
             this.shoukaku.leaveVoiceChannel(guildId);
         } catch {
             // Already disconnected — ignore.
+        }
+    }
+
+    /** Automatically re-join voice channels and resume playback after bot process restarts. */
+    public async reconnectActivePlayers(): Promise<void> {
+        const savedPlayers = loadAllPlayerStates();
+        const entries = Object.entries(savedPlayers);
+        if (entries.length === 0) return;
+
+        console.log(`[Zorin Music] 🔄 Found ${entries.length} active player session(s) in store. Reconnecting to voice channels...`);
+
+        for (const [guildId, saved] of entries) {
+            try {
+                const guild = this.guilds.cache.get(guildId);
+                if (!guild) {
+                    removePlayerState(guildId);
+                    continue;
+                }
+
+                const voiceChannel = guild.channels.cache.get(saved.channelId);
+                if (!voiceChannel) {
+                    removePlayerState(guildId);
+                    continue;
+                }
+
+                // Re-join voice channel and recreate queue
+                const queue = await this.createPlayer(
+                    saved.guildId,
+                    saved.channelId,
+                    saved.shardId,
+                    saved.textChannelId,
+                );
+
+                if (saved.queueTracks && saved.queueTracks.length > 0) {
+                    queue.tracks = saved.queueTracks;
+                }
+                if (saved.loop) {
+                    queue.loop = saved.loop;
+                }
+
+                // Check if Lavalink is already playing this session or if we need to resume track
+                if (saved.currentTrack && !queue.player.track) {
+                    queue.current = saved.currentTrack;
+                    await queue.player.playTrack({
+                        track: { encoded: saved.currentTrack.encoded },
+                        position: saved.position || 0,
+                    });
+                    if (saved.paused) {
+                        await queue.player.setPaused(true);
+                    }
+                }
+
+                console.log(`[Zorin Music] ✅ Reconnected player to voice channel "${voiceChannel.name}" in ${guild.name}.`);
+            } catch (err: any) {
+                console.warn(`[Zorin Music] ⚠️ Failed to reconnect player for guild ${guildId}:`, err?.message ?? err);
+                removePlayerState(guildId);
+            }
         }
     }
 
@@ -261,6 +360,9 @@ export class ZorinClient extends Client {
         // Shoukaku lifecycle events
         this.shoukaku.on('ready', async (name, resumed) => {
             const node = this.shoukaku.nodes.get(name);
+            this._nodeErrors.set(name, 0); // Reset error count on successful connection
+            this._nodeCooldowns.delete(name);
+
             if (node?.sessionId) {
                 saveSession(name, node.sessionId);
                 console.log(`[Lavalink] ✅ Node "${name}" connected (Session-Id: ${node.sessionId}, Resumed: ${resumed}).`);
@@ -278,18 +380,45 @@ export class ZorinClient extends Client {
             }
         });
 
-        this.shoukaku.on('error', (name, error) => {
-            console.error(`[Lavalink] ❌ Node "${name}" error:`, (error as any)?.message ?? error);
-        });
-        this.shoukaku.on('close', (name, code, reason) => {
-            if (code === 4000) {
-                console.warn(`[Lavalink] ⚠️ Node "${name}" closed (code 4000: rate limit). Backing off…`);
+        const recordNodeFault = (name: string, reason: string) => {
+            const count = (this._nodeErrors.get(name) || 0) + 1;
+            this._nodeErrors.set(name, count);
+
+            if (count >= 4) {
+                const cooldownUntil = Date.now() + 60 * 60 * 1000;
+                this._nodeCooldowns.set(name, cooldownUntil);
+                const untilStr = new Date(cooldownUntil).toLocaleTimeString();
+                console.warn(`[Lavalink] 🛑 Node "${name}" reached ${count} fault events (${reason}). Placed on 1-hour cooldown until ${untilStr}. Terminating node socket completely!`);
+                
+                // HARD KILL SWITCH: Strip listeners, terminate WebSocket, and purge node from Shoukaku
+                const node = this.shoukaku.nodes.get(name);
+                if (node) {
+                    try {
+                        node.removeAllListeners();
+                        if (node.ws) {
+                            node.ws.removeAllListeners();
+                            node.ws.terminate();
+                        }
+                        (node as any).state = 3;
+                    } catch {}
+                    this.shoukaku.nodes.delete(name);
+                }
             } else {
-                console.warn(`[Lavalink] ⚠️ Node "${name}" closed — code ${code}: ${reason}`);
+                console.warn(`[Lavalink] ⚠️ Node "${name}" fault count: ${count}/4 (${reason}).`);
             }
+        };
+
+        this.shoukaku.on('error', (name, error) => {
+            const msg = (error as any)?.message ?? String(error);
+            recordNodeFault(name, `error: ${msg}`);
         });
+
+        this.shoukaku.on('close', (name, code, reason) => {
+            recordNodeFault(name, `close code ${code}: ${reason || 'unknown'}`);
+        });
+
         this.shoukaku.on('disconnect', (name, count) => {
-            console.warn(`[Lavalink] ⚠️ Node "${name}" disconnected (${count} players affected).`);
+            recordNodeFault(name, `disconnected (${count} players)`);
         });
 
         process.on('unhandledRejection', (reason: any) => {

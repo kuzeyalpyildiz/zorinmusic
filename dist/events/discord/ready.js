@@ -8,6 +8,10 @@ exports.default = {
     execute(client) {
         console.log(`[Zorin Music] 🎵 Logged in as ${client.user?.tag}`);
         console.log(`[Zorin Music] 🌐 Serving ${client.guilds.cache.size} guild(s).`);
+        // Reconnect active players from players.json store
+        client.reconnectActivePlayers().catch(err => {
+            console.warn('[Zorin Music] ⚠️ Error reconnecting active players:', err);
+        });
         // Asynchronous non-blocking slash command registration (0ms boot delay)
         (async () => {
             try {
