@@ -31,13 +31,7 @@ class ZorinClient extends discord_js_1.Client {
                 discord_js_1.GatewayIntentBits.MessageContent,
             ],
         });
-        const nodes = config_1.config.lavalink.nodes.map(n => ({
-            name: n.name,
-            url: `${n.host}:${n.port}`,
-            auth: n.password,
-            secure: n.secure,
-        }));
-        this.shoukaku = new shoukaku_1.Shoukaku(new shoukaku_1.Connectors.DiscordJS(this), nodes, {
+        this.shoukaku = new shoukaku_1.Shoukaku(new shoukaku_1.Connectors.DiscordJS(this), [], {
             moveOnDisconnect: false,
             resume: true,
             resumeTimeout: config_1.config.lavalink.resumeTimeout,
@@ -45,13 +39,96 @@ class ZorinClient extends discord_js_1.Client {
             reconnectInterval: 15_000,
             restTimeout: 15_000,
         });
-        // Pre-populate Lavalink node sessionId from sessionStore disk cache so Shoukaku includes Session-Id header on handshake
+        // Attach Shoukaku lifecycle handlers immediately to prevent ERR_UNHANDLED_ERROR
+        this.shoukaku.on('ready', async (name, resumed) => {
+            const node = this.shoukaku.nodes.get(name);
+            this._nodeErrors.set(name, 0); // Reset error count on clean connection
+            this._nodeCooldowns.delete(name);
+            if (node?.sessionId) {
+                (0, sessionStore_1.saveSession)(name, node.sessionId);
+                console.log(`[Lavalink] ✅ Node "${name}" connected (Session-Id: ${node.sessionId}, Resumed: ${resumed}).`);
+            }
+            else {
+                console.log(`[Lavalink] ✅ Node "${name}" connected.`);
+            }
+            if (resumed && node) {
+                try {
+                    const activePlayers = await node.rest.getPlayers();
+                    console.log(`[Lavalink] 🔄 Session resumed for node "${name}" — restored ${activePlayers.length} active Lavalink player(s).`);
+                }
+                catch (err) {
+                    console.warn(`[Lavalink] ⚠️ Failed to fetch active resumed players for node "${name}":`, err);
+                }
+            }
+        });
+        const recordNodeFault = (name, reason) => {
+            const count = (this._nodeErrors.get(name) || 0) + 1;
+            this._nodeErrors.set(name, count);
+            if (count >= 4) {
+                const cooldownUntil = Date.now() + 60 * 60 * 1000;
+                this._nodeCooldowns.set(name, cooldownUntil);
+                const untilStr = new Date(cooldownUntil).toLocaleTimeString();
+                console.warn(`[Lavalink] 🛑 Node "${name}" reached ${count} fault events (${reason}). Placed on 1-hour cooldown until ${untilStr}. Terminating node socket completely!`);
+                // HARD KILL SWITCH: Strip listeners, terminate WebSocket, and purge node from Shoukaku
+                const node = this.shoukaku.nodes.get(name);
+                if (node) {
+                    try {
+                        node.removeAllListeners();
+                        if (node.ws) {
+                            node.ws.removeAllListeners();
+                            node.ws.terminate();
+                        }
+                        node.state = 3;
+                    }
+                    catch { }
+                    this.shoukaku.nodes.delete(name);
+                }
+            }
+            else {
+                console.warn(`[Lavalink] ⚠️ Node "${name}" fault count: ${count}/4 (${reason}).`);
+            }
+        };
+        this.shoukaku.on('error', (name, error) => {
+            const msg = error?.message ?? String(error);
+            recordNodeFault(name, `error: ${msg}`);
+        });
+        this.shoukaku.on('close', (name, code, reason) => {
+            recordNodeFault(name, `close code ${code}: ${reason || 'unknown'}`);
+        });
+        this.shoukaku.on('disconnect', (name, count) => {
+            recordNodeFault(name, `disconnected (${count} players)`);
+        });
+    }
+    /** Connect Lavalink nodes after Discord client user ID is populated to prevent "UserId missing" errors. */
+    connectLavalinkNodes() {
+        if (this.user?.id) {
+            this.shoukaku.id = this.user.id;
+        }
         const savedSessions = (0, sessionStore_1.loadSessions)();
-        for (const [nodeName, node] of this.shoukaku.nodes.entries()) {
-            const savedSessionId = savedSessions[nodeName];
+        for (const n of config_1.config.lavalink.nodes) {
+            if (this.shoukaku.nodes.has(n.name))
+                continue;
+            const nodeOptions = {
+                name: n.name,
+                url: `${n.host}:${n.port}`,
+                auth: n.password,
+                secure: n.secure,
+            };
+            const node = new shoukaku_1.Node(this.shoukaku, nodeOptions);
+            const savedSessionId = savedSessions[n.name];
             if (savedSessionId) {
                 node.sessionId = savedSessionId;
+                console.log(`[Lavalink] 🔑 Pre-loaded Session-Id "${savedSessionId}" for node "${n.name}" before connection handshake.`);
             }
+            node.on('debug', (...args) => this.shoukaku.emit('debug', node.name, ...args));
+            node.on('reconnecting', (...args) => this.shoukaku.emit('reconnecting', node.name, ...args));
+            node.on('error', (...args) => this.shoukaku.emit('error', node.name, ...args));
+            node.on('close', (...args) => this.shoukaku.emit('close', node.name, ...args));
+            node.on('ready', (...args) => this.shoukaku.emit('ready', node.name, ...args));
+            node.on('raw', (...args) => this.shoukaku.emit('raw', node.name, ...args));
+            node.once('disconnect', () => this.shoukaku.nodes.delete(node.name));
+            this.shoukaku.nodes.set(node.name, node);
+            node.connect().catch((error) => this.shoukaku.emit('error', node.name, error));
         }
     }
     // ── Lavalink helpers ──
@@ -100,7 +177,7 @@ class ZorinClient extends discord_js_1.Client {
         player.on('start', async () => {
             if (!queue.current)
                 return;
-            // Save active player state to disk for auto-reconnection on bot restart
+            // Only save player state if an active track is currently playing
             (0, playerStore_1.savePlayerState)(guildId, {
                 guildId,
                 channelId,
@@ -130,17 +207,19 @@ class ZorinClient extends discord_js_1.Client {
                             const updatedEmbed = (0, embeds_1.createNowPlayingEmbed)(queue.current, player.position);
                             await queue.lastNowPlayingMessage.edit({ embeds: [updatedEmbed] });
                             // Periodically update saved position
-                            (0, playerStore_1.savePlayerState)(guildId, {
-                                guildId,
-                                channelId,
-                                textChannelId,
-                                shardId,
-                                currentTrack: queue.current,
-                                queueTracks: queue.tracks,
-                                position: player.position,
-                                loop: queue.loop,
-                                paused: queue.paused,
-                            });
+                            if (queue.current) {
+                                (0, playerStore_1.savePlayerState)(guildId, {
+                                    guildId,
+                                    channelId,
+                                    textChannelId,
+                                    shardId,
+                                    currentTrack: queue.current,
+                                    queueTracks: queue.tracks,
+                                    position: player.position,
+                                    loop: queue.loop,
+                                    paused: queue.paused,
+                                });
+                            }
                         }
                         catch {
                             queue.stopNowPlayingUpdater();
@@ -217,14 +296,25 @@ class ZorinClient extends discord_js_1.Client {
             // Already disconnected — ignore.
         }
     }
-    /** Automatically re-join voice channels and resume playback after bot process restarts. */
+    /** Automatically re-join voice channels and resume playback ONLY if a track was actively playing before restart. */
     async reconnectActivePlayers() {
         const savedPlayers = (0, playerStore_1.loadAllPlayerStates)();
         const entries = Object.entries(savedPlayers);
         if (entries.length === 0)
             return;
-        console.log(`[Zorin Music] 🔄 Found ${entries.length} active player session(s) in store. Reconnecting to voice channels...`);
+        // Ensure healthy node is connected before attempting player reconnect
+        const connectedNode = [...this.shoukaku.nodes.values()].find(n => n.state === 1);
+        if (!connectedNode) {
+            console.log('[Zorin Music] ℹ️ Skipping player auto-reconnect: No connected Lavalink nodes available.');
+            return;
+        }
+        console.log(`[Zorin Music] 🔄 Found ${entries.length} active track session(s) in store. Reconnecting to voice channels...`);
         for (const [guildId, saved] of entries) {
+            // Only reconnect if a track was actively playing
+            if (!saved.currentTrack) {
+                (0, playerStore_1.removePlayerState)(guildId);
+                continue;
+            }
             try {
                 const guild = this.guilds.cache.get(guildId);
                 if (!guild) {
@@ -244,7 +334,7 @@ class ZorinClient extends discord_js_1.Client {
                 if (saved.loop) {
                     queue.loop = saved.loop;
                 }
-                // Check if Lavalink is already playing this session or if we need to resume track
+                // Resume active track playback if Lavalink session needs resumption
                 if (saved.currentTrack && !queue.player.track) {
                     queue.current = saved.currentTrack;
                     await queue.player.playTrack({
@@ -309,65 +399,6 @@ class ZorinClient extends discord_js_1.Client {
     async start() {
         const startTime = Date.now();
         await Promise.all([this.loadCommands(), this.loadEvents()]);
-        // Shoukaku lifecycle events
-        this.shoukaku.on('ready', async (name, resumed) => {
-            const node = this.shoukaku.nodes.get(name);
-            this._nodeErrors.set(name, 0); // Reset error count on successful connection
-            this._nodeCooldowns.delete(name);
-            if (node?.sessionId) {
-                (0, sessionStore_1.saveSession)(name, node.sessionId);
-                console.log(`[Lavalink] ✅ Node "${name}" connected (Session-Id: ${node.sessionId}, Resumed: ${resumed}).`);
-            }
-            else {
-                console.log(`[Lavalink] ✅ Node "${name}" connected.`);
-            }
-            if (resumed && node) {
-                try {
-                    const activePlayers = await node.rest.getPlayers();
-                    console.log(`[Lavalink] 🔄 Session resumed for node "${name}" — restored ${activePlayers.length} active Lavalink player(s).`);
-                }
-                catch (err) {
-                    console.warn(`[Lavalink] ⚠️ Failed to fetch active resumed players for node "${name}":`, err);
-                }
-            }
-        });
-        const recordNodeFault = (name, reason) => {
-            const count = (this._nodeErrors.get(name) || 0) + 1;
-            this._nodeErrors.set(name, count);
-            if (count >= 4) {
-                const cooldownUntil = Date.now() + 60 * 60 * 1000;
-                this._nodeCooldowns.set(name, cooldownUntil);
-                const untilStr = new Date(cooldownUntil).toLocaleTimeString();
-                console.warn(`[Lavalink] 🛑 Node "${name}" reached ${count} fault events (${reason}). Placed on 1-hour cooldown until ${untilStr}. Terminating node socket completely!`);
-                // HARD KILL SWITCH: Strip listeners, terminate WebSocket, and purge node from Shoukaku
-                const node = this.shoukaku.nodes.get(name);
-                if (node) {
-                    try {
-                        node.removeAllListeners();
-                        if (node.ws) {
-                            node.ws.removeAllListeners();
-                            node.ws.terminate();
-                        }
-                        node.state = 3;
-                    }
-                    catch { }
-                    this.shoukaku.nodes.delete(name);
-                }
-            }
-            else {
-                console.warn(`[Lavalink] ⚠️ Node "${name}" fault count: ${count}/4 (${reason}).`);
-            }
-        };
-        this.shoukaku.on('error', (name, error) => {
-            const msg = error?.message ?? String(error);
-            recordNodeFault(name, `error: ${msg}`);
-        });
-        this.shoukaku.on('close', (name, code, reason) => {
-            recordNodeFault(name, `close code ${code}: ${reason || 'unknown'}`);
-        });
-        this.shoukaku.on('disconnect', (name, count) => {
-            recordNodeFault(name, `disconnected (${count} players)`);
-        });
         process.on('unhandledRejection', (reason) => {
             if (reason?.name === 'RestError' || reason?.message?.includes('Session not found')) {
                 console.warn('[Lavalink] ⚠️ Expired Lavalink session caught. Player session will auto-recreate on next command.');
@@ -387,6 +418,7 @@ class ZorinClient extends discord_js_1.Client {
             console.error('[Uncaught Exception]', error);
         });
         await this.login(config_1.config.token);
+        this.connectLavalinkNodes();
         console.log(`[Zorin Music] 🚀 Startup completed in ${Date.now() - startTime}ms.`);
     }
 }

@@ -15,7 +15,7 @@ exports.default = {
         // Asynchronous non-blocking slash command registration (0ms boot delay)
         (async () => {
             try {
-                const commandsData = Array.from(client.commands.values()).map(cmd => cmd.data.toJSON());
+                const commandsData = Array.from(client.commands.values()).map((cmd) => cmd.data.toJSON());
                 const rest = new discord_js_1.REST({ version: '10' }).setToken(config_1.config.token);
                 if (config_1.config.guildId) {
                     await rest.put(discord_js_1.Routes.applicationGuildCommands(config_1.config.clientId || client.user.id, config_1.config.guildId), { body: commandsData });

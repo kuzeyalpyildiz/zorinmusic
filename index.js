@@ -1,5 +1,11 @@
 // Zorin Music — Instant Fast-Boot Bootstrapper
-// Fast-boot caching via boot.txt marker file to stay well under Lavalink 30s session resume window
+// Disable npm package update checks and online version lookups on boot
+
+process.env.NO_UPDATE_NOTIFIER = '1';
+process.env.NPM_CONFIG_UPDATE_NOTIFIER = 'false';
+process.env.NPM_CONFIG_AUDIT = 'false';
+process.env.NPM_CONFIG_FUND = 'false';
+process.env.NPM_CONFIG_PREFER_OFFLINE = 'true';
 
 const { performance } = require('perf_hooks');
 const startTime = performance.now();
@@ -41,7 +47,7 @@ console.log(`[Pre-Check] ✅ Node.js v${nodeVersion} detected.`);
 if (!fs.existsSync(nodeModulesPath)) {
     console.log('[Pre-Check] 📦 node_modules missing — installing dependencies …');
     try {
-        execSync('npm install', { stdio: 'inherit', cwd: __dirname });
+        execSync('npm install --prefer-offline --no-audit --no-fund', { stdio: 'inherit', cwd: __dirname });
         console.log('[Pre-Check] ✅ Dependencies installed!');
     } catch (err) {
         console.error('❌  Failed to install dependencies:', err.message);

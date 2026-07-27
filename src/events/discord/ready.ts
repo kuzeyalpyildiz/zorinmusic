@@ -17,7 +17,7 @@ export default {
         // Asynchronous non-blocking slash command registration (0ms boot delay)
         (async () => {
             try {
-                const commandsData = Array.from(client.commands.values()).map(cmd => cmd.data.toJSON() as object);
+                const commandsData = Array.from(client.commands.values()).map((cmd: any) => cmd.data.toJSON() as object);
                 const rest = new REST({ version: '10' }).setToken(config.token);
 
                 if (config.guildId) {

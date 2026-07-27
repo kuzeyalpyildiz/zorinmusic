@@ -20,7 +20,7 @@ export default {
         if (!voiceChannel || !voiceChannel.isVoiceBased()) return;
 
         // Count non-bot members in the voice channel
-        const humanMembers = voiceChannel.members.filter(m => !m.user.bot);
+        const humanMembers = voiceChannel.members.filter((m: any) => !m.user.bot);
 
         if (humanMembers.size === 0) {
             // Everyone left — start 2-minute alone leave timer if not already running
