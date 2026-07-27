@@ -1,4 +1,4 @@
-import { EmbedBuilder } from 'discord.js';
+import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { QueueTrack } from '../types';
 import { MusicQueue } from '../structures/MusicQueue';
 
@@ -199,4 +199,37 @@ export function createQueueEmbed(queue: MusicQueue, page: number = 1): EmbedBuil
         ],
         footer: `Page ${clampedPage} / ${totalPages}  •  Zorin Music`,
     });
+}
+
+// ── Now Playing Interactive Button Component Row ──
+export function createNowPlayingComponents(queue: MusicQueue): ActionRowBuilder<ButtonBuilder>[] {
+    const isPaused = queue.paused;
+    const loopMode = queue.loop || 'off';
+
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+            .setCustomId('btn_prev')
+            .setEmoji('⏮️')
+            .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+            .setCustomId('btn_pause_toggle')
+            .setEmoji(isPaused ? '▶️' : '⏸️')
+            .setLabel(isPaused ? 'Resume' : 'Pause')
+            .setStyle(isPaused ? ButtonStyle.Success : ButtonStyle.Primary),
+        new ButtonBuilder()
+            .setCustomId('btn_skip')
+            .setEmoji('⏭️')
+            .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+            .setCustomId('btn_loop_toggle')
+            .setEmoji('🔁')
+            .setLabel(loopMode === 'track' ? 'Loop: Track' : loopMode === 'queue' ? 'Loop: Queue' : 'Loop: Off')
+            .setStyle(loopMode !== 'off' ? ButtonStyle.Success : ButtonStyle.Secondary),
+        new ButtonBuilder()
+            .setCustomId('btn_stop')
+            .setEmoji('⏹️')
+            .setStyle(ButtonStyle.Danger)
+    );
+
+    return [row];
 }

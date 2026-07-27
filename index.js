@@ -28,7 +28,7 @@ require('dotenv').config();
 // ⚡ FAST-BOOT PATH: If boot.txt, dist/index.js, and node_modules exist, skip pre-checks & compilation
 if (fs.existsSync(bootMarkerPath) && fs.existsSync(indexJsPath) && fs.existsSync(nodeModulesPath)) {
     const timeTakenMs = (performance.now() - startTime).toFixed(2);
-    console.log(`[Fast-Boot] ⚡ Fast-boot marker (boot.txt) detected. Skipping build pre-checks (${timeTakenMs}ms)! Booting bot…`);
+    console.log(`[Fast-Boot] ⚡ Fast-boot system active. Skipping build pre-checks (${timeTakenMs}ms)! Booting bot…`);
     require('./dist/index.js');
     return;
 }

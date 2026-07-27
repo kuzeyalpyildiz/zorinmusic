@@ -12,6 +12,7 @@ exports.createNowPlayingEmbed = createNowPlayingEmbed;
 exports.createTrackAddedEmbed = createTrackAddedEmbed;
 exports.createPlaylistAddedEmbed = createPlaylistAddedEmbed;
 exports.createQueueEmbed = createQueueEmbed;
+exports.createNowPlayingComponents = createNowPlayingComponents;
 const discord_js_1 = require("discord.js");
 // ── Zorin Music colour palette ──
 exports.Colors = {
@@ -189,4 +190,28 @@ function createQueueEmbed(queue, page = 1) {
         ],
         footer: `Page ${clampedPage} / ${totalPages}  •  Zorin Music`,
     });
+}
+// ── Now Playing Interactive Button Component Row ──
+function createNowPlayingComponents(queue) {
+    const isPaused = queue.paused;
+    const loopMode = queue.loop || 'off';
+    const row = new discord_js_1.ActionRowBuilder().addComponents(new discord_js_1.ButtonBuilder()
+        .setCustomId('btn_prev')
+        .setEmoji('⏮️')
+        .setStyle(discord_js_1.ButtonStyle.Secondary), new discord_js_1.ButtonBuilder()
+        .setCustomId('btn_pause_toggle')
+        .setEmoji(isPaused ? '▶️' : '⏸️')
+        .setLabel(isPaused ? 'Resume' : 'Pause')
+        .setStyle(isPaused ? discord_js_1.ButtonStyle.Success : discord_js_1.ButtonStyle.Primary), new discord_js_1.ButtonBuilder()
+        .setCustomId('btn_skip')
+        .setEmoji('⏭️')
+        .setStyle(discord_js_1.ButtonStyle.Secondary), new discord_js_1.ButtonBuilder()
+        .setCustomId('btn_loop_toggle')
+        .setEmoji('🔁')
+        .setLabel(loopMode === 'track' ? 'Loop: Track' : loopMode === 'queue' ? 'Loop: Queue' : 'Loop: Off')
+        .setStyle(loopMode !== 'off' ? discord_js_1.ButtonStyle.Success : discord_js_1.ButtonStyle.Secondary), new discord_js_1.ButtonBuilder()
+        .setCustomId('btn_stop')
+        .setEmoji('⏹️')
+        .setStyle(discord_js_1.ButtonStyle.Danger));
+    return [row];
 }
