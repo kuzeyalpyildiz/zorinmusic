@@ -378,26 +378,30 @@ export class ZorinClient extends Client {
                     saved.textChannelId,
                 );
 
-                if (saved.queueTracks && saved.queueTracks.length > 0) {
-                    queue.tracks = saved.queueTracks;
-                }
-                if (saved.loop) {
-                    queue.loop = saved.loop;
-                }
-
-                // Resume active track playback if Lavalink session needs resumption
-                if (saved.currentTrack && !queue.player.track) {
+                // Always populate queue.current so the bot recognizes the playing track on session resume
+                if (saved.currentTrack) {
                     queue.current = saved.currentTrack;
-                    await queue.player.playTrack({
-                        track: { encoded: saved.currentTrack.encoded },
-                        position: saved.position || 0,
-                    });
-                    if (saved.paused) {
-                        await queue.player.setPaused(true);
+
+                    if (saved.queueTracks && saved.queueTracks.length > 0) {
+                        queue.tracks = saved.queueTracks;
+                    }
+                    if (saved.loop) {
+                        queue.loop = saved.loop;
+                    }
+
+                    // Only send playTrack if Lavalink is not already actively playing this track
+                    if (!queue.player.track) {
+                        await queue.player.playTrack({
+                            track: { encoded: saved.currentTrack.encoded },
+                            position: saved.position || 0,
+                        });
+                        if (saved.paused) {
+                            await queue.player.setPaused(true);
+                        }
                     }
                 }
 
-                console.log(`[Zorin Music] ✅ Reconnected player to voice channel "${voiceChannel.name}" in ${guild.name}.`);
+                console.log(`[Zorin Music] ✅ Reconnected player to voice channel "${voiceChannel.name}" in ${guild.name} (Playing: ${queue.current?.info?.title || 'Unknown'}).`);
             } catch (err: any) {
                 console.warn(`[Zorin Music] ⚠️ Failed to reconnect player for guild ${guildId}:`, err?.message ?? err);
                 removePlayerState(guildId);
