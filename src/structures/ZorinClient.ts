@@ -341,14 +341,32 @@ export class ZorinClient extends Client {
         const entries = Object.entries(savedPlayers);
         if (entries.length === 0) return;
 
-        // Ensure healthy node is connected before attempting player reconnect
-        const connectedNode = [...this.shoukaku.nodes.values()].find(n => n.state === 1);
+        // Wait up to 5 seconds for at least 1 Lavalink node to complete WebSocket handshake
+        let connectedNode = [...this.shoukaku.nodes.values()].find(n => n.state === 1);
         if (!connectedNode) {
-            console.log('[Zorin Music] ℹ️ Skipping player auto-reconnect: No connected Lavalink nodes available.');
+            let waits = 0;
+            while (!connectedNode && waits < 10) {
+                await new Promise(res => setTimeout(res, 500));
+                waits++;
+                connectedNode = [...this.shoukaku.nodes.values()].find(n => n.state === 1);
+            }
+        }
+
+        if (!connectedNode) {
+            console.log('[Zorin Music] ℹ️ Skipping player auto-reconnect: No connected Lavalink nodes available after waiting.');
             return;
         }
 
-        console.log(`[Zorin Music] 🔄 Found ${entries.length} active track session(s) in store. Reconnecting to voice channels...`);
+        console.log(`[Zorin Music] 🔄 Found ${entries.length} active track session(s) in store. Querying Lavalink server state...`);
+
+        // Fetch live active players directly from Lavalink REST API to get exact server state
+        let liveLavalinkPlayers: any[] = [];
+        try {
+            liveLavalinkPlayers = await connectedNode.rest.getPlayers();
+            console.log(`[Lavalink REST] 🛰️ Fetched ${liveLavalinkPlayers.length} active player(s) directly from Lavalink node "${connectedNode.name}".`);
+        } catch (err) {
+            console.warn(`[Lavalink REST] ⚠️ Failed to fetch players from REST API:`, err);
+        }
 
         for (const [guildId, saved] of entries) {
             // Only reconnect if a track was actively playing
@@ -378,26 +396,54 @@ export class ZorinClient extends Client {
                     saved.textChannelId,
                 );
 
-                // Always populate queue.current so the bot recognizes the playing track on session resume
-                if (saved.currentTrack) {
+                // Stop any pending idle/alone leave timeouts immediately upon reconnect
+                queue.stopLeaveTimeout();
+
+                // 🎯 Direct Lavalink REST Sync: Fetch live playing track straight from Lavalink server
+                const livePlayer = liveLavalinkPlayers.find((p: any) => p.guildId === guildId);
+
+                if (livePlayer && livePlayer.track) {
+                    queue.current = {
+                        encoded: livePlayer.track.encoded,
+                        info: {
+                            identifier: livePlayer.track.info.identifier,
+                            isSeekable: livePlayer.track.info.isSeekable,
+                            author: livePlayer.track.info.author,
+                            length: livePlayer.track.info.length,
+                            isStream: livePlayer.track.info.isStream,
+                            position: livePlayer.state?.position ?? livePlayer.track.info.position ?? saved.position ?? 0,
+                            title: livePlayer.track.info.title,
+                            uri: livePlayer.track.info.uri,
+                            artworkUrl: livePlayer.track.info.artworkUrl,
+                            sourceName: livePlayer.track.info.sourceName,
+                        },
+                        requester: saved.currentTrack?.requester || {
+                            id: this.user!.id,
+                            username: 'System (Resumed)',
+                            displayName: 'System',
+                            avatarURL: this.user!.displayAvatarURL(),
+                        },
+                    };
+                    console.log(`[Zorin Music] 🎯 Synced live playing track "${queue.current.info.title}" directly from Lavalink server!`);
+                } else if (saved.currentTrack) {
                     queue.current = saved.currentTrack;
+                }
 
-                    if (saved.queueTracks && saved.queueTracks.length > 0) {
-                        queue.tracks = saved.queueTracks;
-                    }
-                    if (saved.loop) {
-                        queue.loop = saved.loop;
-                    }
+                if (saved.queueTracks && saved.queueTracks.length > 0) {
+                    queue.tracks = saved.queueTracks;
+                }
+                if (saved.loop) {
+                    queue.loop = saved.loop;
+                }
 
-                    // Only send playTrack if Lavalink is not already actively playing this track
-                    if (!queue.player.track) {
-                        await queue.player.playTrack({
-                            track: { encoded: saved.currentTrack.encoded },
-                            position: saved.position || 0,
-                        });
-                        if (saved.paused) {
-                            await queue.player.setPaused(true);
-                        }
+                // Only send playTrack if Lavalink is not already actively playing this track
+                if (!queue.player.track && saved.currentTrack) {
+                    await queue.player.playTrack({
+                        track: { encoded: saved.currentTrack.encoded },
+                        position: saved.position || 0,
+                    });
+                    if (saved.paused) {
+                        await queue.player.setPaused(true);
                     }
                 }
 

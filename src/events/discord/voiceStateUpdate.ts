@@ -6,6 +6,9 @@ export default {
     name: 'voiceStateUpdate',
     once: false,
     async execute(client: ZorinClient, oldState: VoiceState, newState: VoiceState) {
+        // Ignore the bot's own voice state updates to prevent false alone timeouts on reconnect/start
+        if (oldState.id === client.user?.id || newState.id === client.user?.id) return;
+
         const guildId = oldState.guild.id || newState.guild.id;
         const queue = client.queues.get(guildId);
         if (!queue) return;
@@ -15,6 +18,9 @@ export default {
 
         const botVoiceChannelId = guild.members.me?.voice.channelId;
         if (!botVoiceChannelId) return;
+
+        // Only evaluate if a user joined or left the bot's current voice channel
+        if (oldState.channelId !== botVoiceChannelId && newState.channelId !== botVoiceChannelId) return;
 
         const voiceChannel = guild.channels.cache.get(botVoiceChannelId);
         if (!voiceChannel || !voiceChannel.isVoiceBased()) return;
@@ -26,6 +32,16 @@ export default {
             // Everyone left — start 2-minute alone leave timer if not already running
             if (!queue.leaveTimeout) {
                 queue.leaveTimeout = setTimeout(async () => {
+                    // Double check human members before destroying player
+                    const currentChannel = guild.channels.cache.get(botVoiceChannelId);
+                    if (currentChannel && currentChannel.isVoiceBased()) {
+                        const currentHumans = currentChannel.members.filter((m: any) => !m.user.bot);
+                        if (currentHumans.size > 0) {
+                            queue.stopLeaveTimeout();
+                            return;
+                        }
+                    }
+
                     const ch = client.channels.cache.get(queue.textChannelId);
                     if (ch && ch.isSendable()) {
                         const embed = createEmbed({
