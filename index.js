@@ -1,11 +1,15 @@
 // Zorin Music — Instant Fast-Boot Bootstrapper
-// Disable npm package update checks and online version lookups on boot
+// Disable npm/npx package update checks, corepack prompts, and online version lookups on boot
 
+process.env.NODE_NO_WARNINGS = '1';
 process.env.NO_UPDATE_NOTIFIER = '1';
 process.env.NPM_CONFIG_UPDATE_NOTIFIER = 'false';
 process.env.NPM_CONFIG_AUDIT = 'false';
 process.env.NPM_CONFIG_FUND = 'false';
 process.env.NPM_CONFIG_PREFER_OFFLINE = 'true';
+process.env.COREPACK_ENABLE_AUTO_PIN = '0';
+process.env.COREPACK_ENABLE_STRICT = '0';
+process.env.COREPACK_ENABLE_DOWNLOAD_PROMPT = '0';
 
 const { performance } = require('perf_hooks');
 const startTime = performance.now();
@@ -78,6 +82,7 @@ if (!process.env.DISCORD_TOKEN) {
 
 // 4. Compile TypeScript & Generate boot.txt Marker
 const tsBuildInfoPath = path.join(distPath, '.tsbuildinfo');
+const localTscPath = path.join(__dirname, 'node_modules', '.bin', 'tsc');
 
 if (!fs.existsSync(distPath) || !fs.existsSync(indexJsPath) || !fs.existsSync(bootMarkerPath)) {
     console.log('[Pre-Check] 🛠️  Compiling TypeScript build …');
@@ -87,7 +92,10 @@ if (!fs.existsSync(distPath) || !fs.existsSync(indexJsPath) || !fs.existsSync(bo
         } else {
              console.log('[Pre-Check] 🚀 Performing full build …');
         }
-        execSync('npx tsc', { stdio: 'inherit', cwd: __dirname });
+        
+        // Execute local tsc binary directly to bypass npx registry version checks
+        const tscCommand = fs.existsSync(localTscPath) ? `"${localTscPath}"` : 'npx --no-install tsc';
+        execSync(tscCommand, { stdio: 'inherit', cwd: __dirname });
         
         // Write boot.txt marker file
         fs.writeFileSync(bootMarkerPath, `Zorin Music Fast-Boot Marker\nCreated: ${new Date().toISOString()}\nNote: Delete this file anytime to force a full re-compile on next boot.\n`);
